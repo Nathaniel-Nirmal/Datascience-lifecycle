@@ -1,7 +1,9 @@
 import sys
 from pyspark.sql import SparkSession
 import argparse
-#feel free to def new functions if you need
+
+# feel free to def new functions if you need
+
 
 def create_dataframe(filepath, format, spark):
     """
@@ -14,7 +16,7 @@ def create_dataframe(filepath, format, spark):
     :return: the spark df uploaded
     """
 
-    #add your code here
+    # add your code here
     if format.lower() == "csv":
         spark_df = spark.read.format("csv").option("header", "true").load(filepath)
     elif format.lower() == "json":
@@ -33,12 +35,20 @@ def transform_nhis_data(nhis_df):
     :return: spark df, transformed df
     """
 
-    #add your code here
-    transformed_df =  None#temporary placeholder
-    raceMap = {1.0 : (1, 12), 2.0 : (2, 12), 3.0 : ((6, 7, 12), 12), 4.0 : (3, 12), 5.0 : (-1, tuple([i for i in range(12)])), 6.0 : (16, 12)} # -1 : any value will do.
-    
-    print(nhis_df.printSchema())
-    
+    # add your code here
+    transformed_df = nhis_df.withColumn("SEX", nhis_df["SEX"].cast("float"))
+    transformed_df = None  # temporary placeholder
+    raceMap = {
+        (1, 12): 1.0,
+        (2, 12): 2.0,
+        ((6, 7, 12), 12): 3.0,
+        (3, 12): 4.0,
+        (-1, tuple([i for i in range(12)])): 5.0,
+        (16, 12): 6.0,
+    }  # -1 : any value will do.
+
+    print(raceMap)
+
     return transformed_df
 
 
@@ -51,8 +61,9 @@ def calculate_statistics(joined_df):
     :return: None
     """
 
-    #add your code here
+    # add your code here
     pass
+
 
 def join_data(brfss_df, nhis_df):
     """
@@ -63,19 +74,29 @@ def join_data(brfss_df, nhis_df):
     :return: the joined df
 
     """
-    #add your code here
-    joined_df = brfss_df.join(nhis_df, (brfss_df.SEX == nhis_df.SEX) & (), how='inner')
-    joined_df = None ##temporary placeholder
+    # add your code here
+    joined_df = brfss_df.join(
+        nhis_df,
+        (brfss_df.SEX == nhis_df.SEX)
+        & (brfss_df._AGEG5YR == nhis_df._AGEG5YR)
+        & (brfss_df._IMPRACE == nhis_df._IMPRACE),
+        how="inner",
+    )
 
     return joined_df
 
-if __name__ == '__main__':
-    arg_parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    arg_parser.add_argument('nhis', type=str, default=None, help="brfss filename")
-    arg_parser.add_argument('brfss', type=str, default=None, help="nhis filename")
-    arg_parser.add_argument('-o', '--output', type=str, default=None, help="output path(optional)")
 
-    #parse args
+if __name__ == "__main__":
+    arg_parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    arg_parser.add_argument("nhis", type=str, default=None, help="brfss filename")
+    arg_parser.add_argument("brfss", type=str, default=None, help="nhis filename")
+    arg_parser.add_argument(
+        "-o", "--output", type=str, default=None, help="output path(optional)"
+    )
+
+    # parse args
     args = arg_parser.parse_args()
     if not args.nhis or not args.brfss:
         arg_parser.usage = arg_parser.format_help()
@@ -88,11 +109,13 @@ if __name__ == '__main__':
         spark = SparkSession.builder.getOrCreate()
 
         # load dataframes
-        brfss_df = create_dataframe(brfss_filename, 'json', spark)
-        nhis_df = create_dataframe(nhis_filename, 'csv', spark)
+        brfss_df = create_dataframe(brfss_filename, "json", spark)
+        nhis_df = create_dataframe(nhis_filename, "csv", spark)
 
         # Perform mapping on nhis dataframe
         nhis_df = transform_nhis_data(nhis_df)
+
+        exit(1)
         # Join brfss and nhis df
         joined_df = join_data(brfss_df, nhis_df)
         # Calculate statistics
@@ -100,8 +123,7 @@ if __name__ == '__main__':
 
         # Save
         if args.output:
-            joined_df.write.csv(args.output, mode='overwrite', header=True)
+            joined_df.write.csv(args.output, mode="overwrite", header=True)
 
-
-        # Stop spark session 
+        # Stop spark session
         spark.stop()
