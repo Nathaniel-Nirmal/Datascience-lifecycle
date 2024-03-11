@@ -1,11 +1,11 @@
 import sys
 from pyspark.sql import SparkSession
+from pyspark.sql.functions import when
+from pyspark.sql import functions as F
 import argparse
-from pyspark.sql.types import *
-# Convert function to udf
-from pyspark.sql.functions import col, udf, array
 
-#feel free to def new functions if you need
+# feel free to def new functions if you need
+
 
 def create_dataframe(filepath, format, spark):
     """
@@ -18,7 +18,7 @@ def create_dataframe(filepath, format, spark):
     :return: the spark df uploaded
     """
 
-    #add your code here
+    # add your code here
     if format.lower() == "csv":
         spark_df = spark.read.format("csv").option("header", "true").load(filepath)
     elif format.lower() == "json":
@@ -28,32 +28,6 @@ def create_dataframe(filepath, format, spark):
 
     return spark_df
 
-def tranformAgeFromNhisToBrfss(age, ageDict = {1 : (18, 24), 2 : (25, 29), 3 : (30, 34), 4 : (35, 39), 5 : (40, 44), 6 : (45, 49), 7 : (50, 54), 8 : (55, 59), 9 : (60, 64), 10 : (65, 69), 11 : (70, 74), 12 : (74, 79), 13 : (80, 99)}):
-    if age is None:
-        return 14.0
-    for key in ageDict.keys():
-        if ageDict[int(key)][0] <= int(age) <= ageDict[int(key)][1]:
-            return float(key)
-    raise ValueError("Age is neither None nor within possible ranges. This is not what is expected. Add code to handle this. Age : ", age)
-
-def tranformRaceFromNhisToBrfss(race):
-    MRACBPI2 = int(race[0])
-    HISPAN_I = int(race[1])
-    raceMap = {1.0 : (1, 12), 2.0 : (2, 12), 3.0 : ((6, 7, 12), 12), 4.0 : (3, 12), 5.0 : (-1, tuple([i for i in range(12)])), 6.0 : (16, 12)} # -1 : any value will do. This map maps race value from brfss's race column(_IMPRACE) to values in columns of Nhis containit races(MRACBPI2 and HISPAN_I)
-    if MRACBPI2 is None or HISPAN_I is None:
-        return None
-    for key in raceMap.keys():
-        if type(raceMap[key][0]) == tuple:
-            for subkey in raceMap[key][0]:
-                if (MRACBPI2 == int(subkey)) and HISPAN_I == raceMap[key][1]:
-                    return key
-        elif type(raceMap[key][1]) == tuple:
-            for subkey in raceMap[key][1]:
-                if HISPAN_I == int(subkey):
-                    return key
-        elif MRACBPI2 == raceMap[key][0] and HISPAN_I == raceMap[key][1]:
-            return key
-    raise ValueError(f"Both MRACBPI2 and HISPAN_I are non-null but no brfss match is their as per raceMap. This is not what is expected. Add code to handle this. MRACBPI2 : {MRACBPI2}, and HISPAN_I : {HISPAN_I} and race(combined) : {race}")
 
 def transform_nhis_data(nhis_df):
     """
@@ -63,14 +37,43 @@ def transform_nhis_data(nhis_df):
     :return: spark df, transformed df
     """
 
-    #add your code here
+    # add your code here
+    transformed_df = nhis_df.withColumn("SEX", nhis_df["SEX"].cast("float"))
+    _IMPRACE_COL = (
+        when((nhis_df["MRACBPI2"] == 1) & (nhis_df["HISPAN_I"] == 12), 1.0)
+        .when((nhis_df["MRACBPI2"] == 2) & (nhis_df["HISPAN_I"] == 12), 2.0)
+        .when((nhis_df["MRACBPI2"].isin([6, 7, 12])) & (nhis_df["HISPAN_I"] == 12), 3.0)
+        .when((nhis_df["MRACBPI2"] == 3) & (nhis_df["HISPAN_I"] == 12), 4.0)
+        .when(
+            (nhis_df["MRACBPI2"].isin([1, 2, 3, 6, 7, 12, 16, 17]))
+            & (nhis_df["HISPAN_I"] != 12),
+            5.0,
+        )
+        .when((nhis_df["MRACBPI2"] == 16) & (nhis_df["HISPAN_I"] == 12), 6.0)
+        .otherwise(6.0)
+    )
 
-    # nhis_df = nhis_df.withColumn("SEX", nhis_df.SEX.cast(DoubleType()))
-    tranformAgeFromNhisToBrfssUDF = udf(lambda x:tranformAgeFromNhisToBrfss(x),StringType()) # UDF function for age column coversion in NHIS data 
-    tranformRaceFromNhisToBrfssUDF = udf(lambda x:tranformRaceFromNhisToBrfss(x),StringType()) # UDF function for conversion of columns in NHIS contain race info to column in Brfss containing race info
-   
+    _AGEG5YR = (
+        when((nhis_df["AGE_P"] >= 18) & (nhis_df["AGE_P"] <= 24), 1.0)
+        .when((nhis_df["AGE_P"] >= 25) & (nhis_df["AGE_P"] <= 29), 2.0)
+        .when((nhis_df["AGE_P"] >= 30) & (nhis_df["AGE_P"] <= 34), 3.0)
+        .when((nhis_df["AGE_P"] >= 35) & (nhis_df["AGE_P"] <= 39), 4.0)
+        .when((nhis_df["AGE_P"] >= 40) & (nhis_df["AGE_P"] <= 44), 5.0)
+        .when((nhis_df["AGE_P"] >= 45) & (nhis_df["AGE_P"] <= 49), 6.0)
+        .when((nhis_df["AGE_P"] >= 50) & (nhis_df["AGE_P"] <= 54), 7.0)
+        .when((nhis_df["AGE_P"] >= 55) & (nhis_df["AGE_P"] <= 59), 8.0)
+        .when((nhis_df["AGE_P"] >= 60) & (nhis_df["AGE_P"] <= 64), 9.0)
+        .when((nhis_df["AGE_P"] >= 65) & (nhis_df["AGE_P"] <= 69), 10.0)
+        .when((nhis_df["AGE_P"] >= 70) & (nhis_df["AGE_P"] <= 74), 11.0)
+        .when((nhis_df["AGE_P"] >= 75) & (nhis_df["AGE_P"] <= 79), 12.0)
+        .when((nhis_df["AGE_P"] >= 80) & (nhis_df["AGE_P"] <= 99), 13.0)
+        .otherwise(14.0)
+    )
 
-    transformed_df = nhis_df.select(nhis_df.SEX.cast(DoubleType()), tranformAgeFromNhisToBrfssUDF(col("AGE_P")).cast(DoubleType()).alias("_AGEG5YR"), tranformRaceFromNhisToBrfssUDF(array(col("MRACBPI2"), col("HISPAN_I"))).alias('_IMPRACE').cast(DoubleType()), nhis_df.DIBEV1.cast(DoubleType())) # Transforming structure of nhis to brfss
+    transformed_df = transformed_df.withColumn("_IMPRACE", _IMPRACE_COL)
+    transformed_df = transformed_df.withColumn("_AGEG5YR", _AGEG5YR)
+    columns_to_drop = ["MRACBPI2", "HISPAN_I", "AGE_P"]
+    transformed_df = transformed_df.drop(*columns_to_drop)
 
     return transformed_df
 
@@ -84,8 +87,15 @@ def calculate_statistics(joined_df):
     :return: None
     """
 
-    #add your code here
-    pass
+    # add your code here
+    for column in ["_IMPRACE", "SEX", "_AGEG5YR"]:
+        statistics = joined_df.groupBy(column).agg(
+            (F.sum(F.when(F.col("DIBEV1") == 1, 1).otherwise(0)) / F.count("*") * 100).alias("prevalence")
+        )
+
+        # Show the calculated prevalence statistics for the current column
+        print(f"Prevalence statistics for column '{column}':")
+        statistics.show()
 
 def join_data(brfss_df, nhis_df):
     """
@@ -96,15 +106,16 @@ def join_data(brfss_df, nhis_df):
     :return: the joined df
 
     """
-    #add your code here
+    # add your code here
     joined_df = brfss_df.join(
         nhis_df,
         (brfss_df.SEX == nhis_df.SEX)
         & (brfss_df._AGEG5YR == nhis_df._AGEG5YR)
         & (brfss_df._IMPRACE == nhis_df._IMPRACE),
         how="inner",
-    )
-
+    ).select(*(brfss_df[col] for col in ["_LLCPWT"]), *(nhis_df[col] for col in nhis_df.columns))
+    #joined_df = joined_df.drop("SEX", "_AGEG5YR", "_IMPRACE")
+    print(joined_df.count())
     return joined_df
 
 
@@ -126,7 +137,7 @@ if __name__ == "__main__":
     else:
         brfss_filename = args.brfss
         nhis_filename = args.nhis
-        
+
         # Start spark session
         spark = SparkSession.builder.getOrCreate()
 
@@ -137,10 +148,10 @@ if __name__ == "__main__":
         # Perform mapping on nhis dataframe
         nhis_df = transform_nhis_data(nhis_df)
 
-        exit(1)
         # Join brfss and nhis df
         joined_df = join_data(brfss_df, nhis_df)
         # Calculate statistics
+        #print(joined_df.show())
         calculate_statistics(joined_df)
 
         # Save
